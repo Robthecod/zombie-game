@@ -1,0 +1,15 @@
+{
+  "name": "zombie-chase",
+  "version": "1.0.0",
+  "description": "Zombie chase - survive on the map",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "node server/index.js",
+    "client": "cd client && npm start",
+    "build:apk": "cd client && npm run build && npx cap sync android && cd client/android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

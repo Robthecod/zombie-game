@@ -1,0 +1,15 @@
+{
+  "name": "zombie-chase-server",
+  "version": "1.0.0",
+  "description": "Zombie chase backend",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4",
+    "cors": "^2.8.5"
+  }
+}
