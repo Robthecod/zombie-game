@@ -16,7 +16,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # @capacitor/cli 8.x requires Node >= 22
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: client/package-lock.json
 
@@ -29,7 +30,7 @@ jobs:
         run: npm run build
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           # Capacitor 8 generates JavaVersion.VERSION_21 bytecode targets — JDK 17 fails the build
