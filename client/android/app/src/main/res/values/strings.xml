@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Zombie Chase</string>
+    <string name="title_activity_main">Zombie Chase</string>
+    <string name="package_name">com.zombiecchase.app</string>
+    <string name="custom_url_scheme">com.zombiecchase.app</string>
+</resources>

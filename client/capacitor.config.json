@@ -2,10 +2,7 @@
   "appId": "com.zombiecchase.app",
   "appName": "Zombie Chase",
   "webDir": "build",
-  "server": {
-    "url": "http://localhost:3001",
-    "cleartext": true
-  },
+
   "plugins": {
     "Geolocation": {
       "preferences": {

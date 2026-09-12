@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import L from 'leaflet';
-import io from 'socket.io-client';
 
 // Fix Leaflet default icon issue in React
 delete L.Icon.Default.prototype._getIconUrl;
@@ -11,7 +10,13 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:3001';
+// Powerup types
+const POWERUP_TYPES = [
+  { type: 'speed', label: '⚡', color: '#ffd700', effect: 'speed_boost' },
+  { type: 'shield', label: '🛡️', color: '#4fc3f7', effect: 'shield' },
+  { type: 'heal', label: '❤️', color: '#ef5350', effect: 'heal' },
+  { type: 'bomb', label: '💣', color: '#ab47bc', effect: 'bomb' },
+];
 
 // Custom player icon
 const createPlayerIcon = (alive) => new L.DivIcon({
@@ -51,89 +56,134 @@ function formatTime(seconds) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// Distance between two coords in meters
+function getDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Spawn a zombie at a random offset from the player
+function spawnZombie(playerLat, playerLng) {
+  const id = `z_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+  const offsetLat = (Math.random() - 0.5) * 0.002;
+  const offsetLng = (Math.random() - 0.5) * 0.002;
+  return {
+    id,
+    lat: playerLat + offsetLat,
+    lng: playerLng + offsetLng,
+    speed: 0.00004 + Math.random() * 0.00003,
+  };
+}
+
+// Spawn a powerup at a random location near the player
+function spawnPowerup(playerLat, playerLng) {
+  const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+  const id = `pu_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+  const offsetLat = (Math.random() - 0.5) * 0.004;
+  const offsetLng = (Math.random() - 0.5) * 0.004;
+  return {
+    id,
+    lat: playerLat + offsetLat,
+    lng: playerLng + offsetLng,
+    type: type.type,
+    label: type.label,
+    color: type.color,
+    effect: type.effect,
+  };
+}
+
 function App() {
   const mapRef = useRef(null);
-  const socketRef = useRef(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [playerPos, setPlayerPos] = useState(null);
   const [zombies, setZombies] = useState([]);
   const [powerups, setPowerups] = useState([]);
   const [alive, setAlive] = useState(true);
-  const [score, setScore] = useState(0);
   const [inventory, setInventory] = useState([]);
   const [inRangePowerup, setInRangePowerup] = useState(null);
   const [effect, setEffect] = useState(null);
   const [locationDenied, setLocationDenied] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [survivalTime, setSurvivalTime] = useState(0);
+  const [score, setScore] = useState(0);
+  const [nearbyZombieCount, setNearbyZombieCount] = useState(0);
 
   const watchIdRef = useRef(null);
   const timerRef = useRef(null);
-  const lastPosRef = useRef(null);
+  const gameLoopRef = useRef(null);
   const effectTimerRef = useRef(null);
+  const lastPosRef = useRef(null);
+  const zombieSpawnTimerRef = useRef(null);
+  const powerupSpawnTimerRef = useRef(null);
 
-  // Socket connection
-  useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-    });
-    socketRef.current = socket;
+  // Game loop — move zombies, check collisions
+  const gameLoop = useCallback(() => {
+    if (!playerPos || !alive) return;
 
-    socket.on('game_state', (state) => {
-      setZombies(state.zombies || []);
-      setPowerups(state.powerups || []);
-    });
+    setZombies((prevZombies) => {
+      const moved = prevZombies.map((z) => {
+        const dLng = playerPos.lng - z.lng;
+        const dLat = playerPos.lat - z.lat;
+        const angle = Math.atan2(dLng, dLat);
+        return {
+          ...z,
+          lat: z.lat + Math.cos(angle) * z.speed,
+          lng: z.lng + Math.sin(angle) * z.speed,
+        };
+      });
 
-    socket.on('zombies_move', (updated) => {
-      setZombies(updated);
-    });
-
-    socket.on('zombie_spawned', (zombie) => {
-      setZombies(prev => [...prev, zombie]);
-    });
-
-    socket.on('powerup_spawned', (pu) => {
-      setPowerups(prev => [...prev, pu]);
-    });
-
-    socket.on('powerup_in_range', (pu) => {
-      setInRangePowerup(pu);
-    });
-
-    socket.on('powerup_collected', (data) => {
-      if (data.collectedBy === socket.id) {
-        setInventory(data.playerInventory);
-        setInRangePowerup(null);
+      // Check if any zombie caught the player
+      for (const z of moved) {
+        const dist = getDistance(z.lat, z.lng, playerPos.lat, playerPos.lng);
+        if (dist < 10) {
+          setAlive(false);
+          setGameOver(true);
+          if (timerRef.current) clearInterval(timerRef.current);
+          if (gameLoopRef.current) clearInterval(gameLoopRef.current);
+          if (zombieSpawnTimerRef.current) clearInterval(zombieSpawnTimerRef.current);
+          if (powerupSpawnTimerRef.current) clearInterval(powerupSpawnTimerRef.current);
+          return moved;
+        }
       }
+
+      return moved;
     });
 
-    socket.on('powerup_used', (data) => {
-      setInventory(data.playerInventory || []);
-      if (data.effect) {
-        applyEffect(data.effect);
+    // Count nearby zombies
+    if (playerPos) {
+      setZombies((prev) => {
+        const count = prev.filter((z) => getDistance(z.lat, z.lng, playerPos.lat, playerPos.lng) < 50).length;
+        setNearbyZombieCount(count);
+        return prev;
+      });
+    }
+
+    // Check powerup collection range
+    setPowerups((prev) => {
+      let inRange = null;
+      for (const pu of prev) {
+        const dist = getDistance(pu.lat, pu.lng, playerPos.lat, playerPos.lng);
+        if (dist < 15) {
+          inRange = pu;
+          break;
+        }
       }
+      setInRangePowerup(inRange);
+      return prev;
     });
 
-    socket.on('player_caught', () => {
-      setAlive(false);
-      setGameOver(true);
-      if (timerRef.current) clearInterval(timerRef.current);
-    });
-
-    socket.on('player_respawned', () => {
-      setAlive(true);
-      setGameOver(false);
-    });
-
-    socket.on('error', (data) => {
-      console.error('Server error:', data.message);
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
+    // Update score (surviving = more score)
+    setScore((s) => s + 1);
+  }, [playerPos, alive]);
 
   // Location tracking
   const startLocationWatch = useCallback(() => {
@@ -152,17 +202,6 @@ function App() {
         }
 
         setPlayerPos(latlng);
-
-        // Send to server
-        if (socketRef.current) {
-          socketRef.current.emit('location_update', {
-            lat: latitude,
-            lng: longitude,
-            heading: heading || 0,
-            speed: speed || 0,
-          });
-        }
-
         lastPosRef.current = latlng;
       },
       (error) => {
@@ -185,24 +224,89 @@ function App() {
   const handleStart = () => {
     setGameStarted(true);
     setLocationDenied(false);
+    setAlive(true);
+    setGameOver(false);
+    setZombies([]);
+    setPowerups([]);
+    setInventory([]);
+    setInRangePowerup(null);
+    setEffect(null);
+    setSurvivalTime(0);
+    setScore(0);
+    setNearbyZombieCount(0);
+
     startLocationWatch();
+
+    // Timer
     timerRef.current = setInterval(() => {
       setSurvivalTime((t) => t + 1);
     }, 1000);
+
+    // Game loop — runs every 200ms for smooth zombie movement
+    gameLoopRef.current = setInterval(gameLoop, 200);
+
+    // Spawn zombies periodically
+    zombieSpawnTimerRef.current = setInterval(() => {
+      if (playerPos && alive) {
+        setZombies((prev) => {
+          // Limit to 5 zombies max
+          if (prev.length >= 5) return prev;
+          return [...prev, spawnZombie(playerPos.lat, playerPos.lng)];
+        });
+      }
+    }, 3000);
+
+    // Spawn powerups periodically
+    powerupSpawnTimerRef.current = setInterval(() => {
+      if (playerPos && alive) {
+        setPowerups((prev) => {
+          // Limit to 6 powerups max
+          if (prev.length >= 6) return prev;
+          return [...prev, spawnPowerup(playerPos.lat, playerPos.lng)];
+        });
+      }
+    }, 8000);
   };
 
   // Collect powerup
   const handleCollect = (powerup) => {
-    if (socketRef.current && powerup) {
-      socketRef.current.emit('collect_powerup', { powerupId: powerup.id });
-    }
+    setPowerups((prev) => prev.filter((p) => p.id !== powerup.id));
+    setInventory((prev) => [...prev, powerup]);
+    setInRangePowerup(null);
   };
 
   // Use powerup from inventory
   const handleUsePowerup = (powerupId) => {
-    if (socketRef.current) {
-      socketRef.current.emit('use_powerup', { powerupId });
+    const pu = inventory.find((p) => p.id === powerupId);
+    if (!pu) return;
+
+    setInventory((prev) => prev.filter((p) => p.id !== powerupId));
+
+    // Apply effect
+    let effectData = {};
+    switch (pu.effect) {
+      case 'speed_boost':
+        effectData = { speedMultiplier: 2, duration: 5000, type: 'speed' };
+        // Temporarily boost zombie speed in game loop
+        break;
+      case 'shield':
+        effectData = { shielded: true, duration: 8000, type: 'shield' };
+        break;
+      case 'heal':
+        effectData = { heal: true, duration: 0, type: 'heal' };
+        setAlive(true);
+        setGameOver(false);
+        break;
+      case 'bomb':
+        effectData = { bombRadius: 50, duration: 0, type: 'bomb' };
+        // Remove nearby zombies
+        setZombies((prev) => {
+          return prev.filter((z) => getDistance(z.lat, z.lng, playerPos.lat, playerPos.lng) > 50);
+        });
+        break;
     }
+
+    applyEffect(effectData);
   };
 
   // Apply visual effect
@@ -226,31 +330,56 @@ function App() {
     setAlive(true);
     setScore(0);
     setSurvivalTime(0);
+    setZombies([]);
+    setPowerups([]);
+    setInventory([]);
+    setInRangePowerup(null);
+    setEffect(null);
+
     if (timerRef.current) clearInterval(timerRef.current);
+    if (gameLoopRef.current) clearInterval(gameLoopRef.current);
+    if (zombieSpawnTimerRef.current) clearInterval(zombieSpawnTimerRef.current);
+    if (powerupSpawnTimerRef.current) clearInterval(powerupSpawnTimerRef.current);
+
     timerRef.current = setInterval(() => {
       setSurvivalTime((t) => t + 1);
     }, 1000);
-    if (socketRef.current) {
-      socketRef.current.emit('respawn');
-    }
+
+    gameLoopRef.current = setInterval(gameLoop, 200);
+
+    zombieSpawnTimerRef.current = setInterval(() => {
+      if (playerPos && alive) {
+        setZombies((prev) => {
+          if (prev.length >= 5) return prev;
+          return [...prev, spawnZombie(playerPos.lat, playerPos.lng)];
+        });
+      }
+    }, 3000);
+
+    powerupSpawnTimerRef.current = setInterval(() => {
+      if (playerPos && alive) {
+        setPowerups((prev) => {
+          if (prev.length >= 6) return prev;
+          return [...prev, spawnPowerup(playerPos.lat, playerPos.lng)];
+        });
+      }
+    }, 8000);
   };
 
   // Render map markers
   const renderMarkers = () => {
     const elements = [];
 
-    // Player
     if (playerPos) {
       elements.push(
         <Marker
-          key={`player-${socketRef.current?.id || 'me'}`}
+          key="player"
           position={[playerPos.lat, playerPos.lng]}
           icon={createPlayerIcon(alive)}
         />
       );
     }
 
-    // Zombies
     zombies.forEach((z) => {
       elements.push(
         <Marker
@@ -261,13 +390,8 @@ function App() {
       );
     });
 
-    // Powerups
     powerups.forEach((pu) => {
       const isInRange = inRangePowerup && inRangePowerup.id === pu.id;
-      const isCollected = pu.collectedBy !== null && pu.collectedBy !== socketRef.current?.id;
-
-      if (isCollected) return;
-
       elements.push(
         <Marker
           key={pu.id}
@@ -290,7 +414,7 @@ function App() {
           <span>📍 Real-time GPS location</span>
           <span>🧟 Zombies chase you on the map</span>
           <span>⚡ Collect powerups to survive longer</span>
-          <span>📱 Works on mobile — tap to play</span>
+          <span>📱 Fully offline — no server needed</span>
         </div>
         <button class="btn" onClick={handleStart}>
           Start Surviving
@@ -313,7 +437,7 @@ function App() {
           <h2>💀 You Got Caught!</h2>
           <p class="score">{formatTime(survivalTime)}</p>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 16 }}>
-            survived {formatTime(survivalTime)}
+            survived {formatTime(survivalTime)} · {nearbyZombieCount} zombies nearby
           </p>
           <button class="btn" onClick={handleRespawn}>
             Try Again
@@ -369,8 +493,8 @@ function App() {
 
       {/* Effect indicator */}
       {effect && (
-        <div id="effect-indicator" class={`show ${effect.speedMultiplier ? 'speed' : effect.shielded ? 'shield' : effect.bombRadius ? 'bomb' : ''}`}>
-          {effect.speedMultiplier ? '⚡ Speed Boost!' : effect.shielded ? '🛡️ Shielded!' : effect.bombRadius ? '💣 Bomb!' : '❤️ Healed!'}
+        <div id="effect-indicator" class={`show ${effect.type === 'speed' ? 'speed' : effect.type === 'shield' ? 'shield' : effect.type === 'bomb' ? 'bomb' : ''}`}>
+          {effect.type === 'speed' ? '⚡ Speed Boost!' : effect.type === 'shield' ? '🛡️ Shielded!' : effect.type === 'bomb' ? '💣 Bomb!' : '❤️ Healed!'}
         </div>
       )}
 

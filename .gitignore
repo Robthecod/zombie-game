@@ -5,3 +5,6 @@ client/build
 server/*.log
 .DS_Store
 Thumbs.db
+client/android/.gradle
+client/android/app/build
+client/android/local.properties
