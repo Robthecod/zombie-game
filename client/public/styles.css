@@ -199,10 +199,6 @@ html, body, #root {
   border-color: #fff;
 }
 
-.inventory-slot:active {
-  transform: scale(0.9);
-}
-
 /* Start screen */
 #start-screen {
   position: absolute;

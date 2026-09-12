@@ -13,6 +13,9 @@
     "react-leaflet": "^4.2.1",
     "react-scripts": "5.0.1"
   },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",

@@ -57,7 +57,8 @@ cd client
 npm run build
 
 # Install Capacitor (one-time)
-npm install -g @capacitor/cli @capacitor/android
+npm install -D @capacitor/cli
+npm install @capacitor/android
 
 npx cap add android
 npx cap sync android
@@ -109,27 +110,27 @@ fly deploy
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REACT_APP_SOCKET_URL` | `http://localhost:3001` | Backend Socket.io server URL |
+| `REACT_APP_SOCKET_URL` | *(none)* | Backend Socket.io server URL. The server listens on port **8080** by default (see `server/index.js`). Note: the current client build plays fully offline and doesn't use this variable yet. |
 
 ## Project Structure
 
 ```
 zombie-chase/
 ├── server/
-│   ├── index.js          # Express + Socket.io game server
+│   ├── index.js          # Express + Socket.io multiplayer game server (currently unused by the client)
 │   ├── Dockerfile        # For container deployment
 │   ├── fly.toml          # Fly.io config
 │   └── package.json
 ├── client/
 │   ├── src/
-│   │   └── App.js        # React game component
+│   │   └── App.js        # React game component (standalone, plays offline)
 │   ├── public/
 │   │   ├── index.html
 │   │   └── styles.css    # Mobile-first styles
+│   ├── android/          # Capacitor Android project
 │   ├── capacitor.config.json
 │   └── package.json
-├── package.json          # Root (concurrently for dev)
-└── README.md
+└── package.json          # Root helper scripts
 ```
 
 ## License

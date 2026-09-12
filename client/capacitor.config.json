@@ -1,13 +1,5 @@
 {
   "appId": "com.zombiecchase.app",
   "appName": "Zombie Chase",
-  "webDir": "build",
-
-  "plugins": {
-    "Geolocation": {
-      "preferences": {
-        "preferences": "iosAllowsBackgroundLocation"
-      }
-    }
-  }
+  "webDir": "build"
 }

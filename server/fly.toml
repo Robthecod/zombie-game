@@ -5,9 +5,10 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
+# The Node server listens on PORT 8080 (see server/index.js) — internal_port must match.
 [http_service]
-  internal_port = 3001
-  force_https = false
+  internal_port = 8080
+  force_https = true
   auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
@@ -24,16 +25,3 @@ primary_region = "iad"
   cpu_kind = "shared"
   cpus = 1
   memory_mb = 256
-
-[[services]]
-  protocol = "tcp"
-  internal_port = 3001
-  processes = ["app"]
-
-  [[services.ports]]
-    port = 443
-    handlers = ["tls"]
-
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
