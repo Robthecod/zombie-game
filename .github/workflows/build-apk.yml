@@ -48,6 +48,7 @@ jobs:
       - name: Build APK
         run: |
           chmod +x client/android/gradlew
+          sed -i 's/\r$//' client/android/gradlew
           cd client/android && ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
