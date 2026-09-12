@@ -46,10 +46,9 @@ jobs:
         run: npx cap sync android
 
       - name: Build APK
-        working-directory: client/android
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          chmod +x client/android/gradlew
+          cd client/android && ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
